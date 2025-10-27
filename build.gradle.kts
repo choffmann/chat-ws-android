@@ -1,12 +1,18 @@
+import java.util.Base64
+
 plugins {
     id("com.android.library") version "8.13.0"
     kotlin("android") version "2.0.21"
     kotlin("plugin.serialization") version "2.0.21"
     `maven-publish`
+    signing
 }
 
-group = "de.hsfl.mobilecomputing"
+group = "io.github.choffmann"
 version = "0.1.0"
+
+val libraryArtifactId = "chat-ws-android"
+val projectUrl = "https://github.com/choffmann/chat-ws-android"
 
 android {
     namespace = "de.hsfl.mobilecomputing.chatws"
@@ -28,11 +34,13 @@ android {
 
 publishing {
     publications {
-        create<MavenPublication>("release") {
+        register<MavenPublication>("release") {
+            afterEvaluate { from(components["release"]) }
+            artifactId = libraryArtifactId
             pom {
-                name = "chat-ws-android"
+                name = libraryArtifactId
                 description = "Ktor WebSocket client for the chat-room server"
-                url = "http://github.com/choffmann/chat-ws-android"
+                url = projectUrl
                 licenses {
                     license {
                         name = "MIT"
@@ -47,9 +55,9 @@ publishing {
                     }
                 }
                 scm {
-                    connection = "scm:git:git://github.com/choffmann/chat-ws-android.git"
-                    developerConnection = "scm:git:ssh://github.com/choffmann/chat-ws-android.git"
-                    url = "http://github.com/choffmann/chat-ws-android"
+                    connection = "scm:git:$projectUrl.git"
+                    developerConnection = "scm:git:ssh://git@github.com/choffmann/chat-ws-android.git"
+                    url = projectUrl
                 }
             }
         }
@@ -57,21 +65,50 @@ publishing {
     repositories {
         maven {
             name = "OSSRH"
-            url = uri("https://oss.sonatype.org/service/local/staging/deploy/maven2/")
+            url = uri("https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/")
+            mavenContent { releasesOnly() }
             credentials {
-                username = System.getenv("MAVEN_USERNAME")
-                password = System.getenv("MAVEN_PASSWORD")
+                username = System.getenv("OSSRH_USERNAME") ?: findProperty("ossrhUsername") as String?
+                password = System.getenv("OSSRH_PASSWORD") ?: findProperty("ossrhPassword") as String?
             }
         }
-
+        maven {
+            name = "OSSRHSnapshots"
+            url = uri("https://s01.oss.sonatype.org/content/repositories/snapshots/")
+            mavenContent { snapshotsOnly() }
+            credentials {
+                username = System.getenv("OSSRH_USERNAME") ?: findProperty("ossrhUsername") as String?
+                password = System.getenv("OSSRH_PASSWORD") ?: findProperty("ossrhPassword") as String?
+            }
+        }
         maven {
             name = "GitHubPackages"
             url = uri("https://maven.pkg.github.com/choffmann/chat-ws-android")
             credentials {
-                username = System.getenv("GITHUB_ACTOR")
+                username = System.getenv("GITHUB_ACTOR") ?: System.getenv("GITHUB_USERNAME")
                 password = System.getenv("GITHUB_TOKEN")
             }
         }
+    }
+}
+
+signing {
+    val signingKey = System.getenv("SIGNING_KEY") ?: findProperty("signing.key") as String?
+    val signingPassword = System.getenv("SIGNING_PASSWORD") ?: findProperty("signing.password") as String?
+    val resolvedSigningKey = signingKey
+        ?.trim()
+        ?.let { encoded ->
+            when {
+                encoded.contains("BEGIN PGP PRIVATE KEY BLOCK") -> encoded
+                else -> runCatching { String(Base64.getDecoder().decode(encoded)) }.getOrNull()
+            }
+        }
+
+    if (!resolvedSigningKey.isNullOrBlank() && !signingPassword.isNullOrBlank()) {
+        useInMemoryPgpKeys(resolvedSigningKey, signingPassword)
+        sign(publishing.publications["release"])
+    } else {
+        logger.warn("Signing disabled: GPG key or password missing.")
     }
 }
 
@@ -89,4 +126,3 @@ dependencies {
     api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     api("org.jetbrains.kotlinx:kotlinx-datetime:0.7.1")
 }
-
