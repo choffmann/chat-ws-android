@@ -22,12 +22,54 @@ import kotlinx.coroutines.flow.*
 import kotlinx.serialization.decodeFromString
 import kotlin.time.Duration.Companion.seconds
 
+/**
+ * Configuration for the websocket client used by [ChatWsMessageRepository].
+ *
+ * @property baseWsUrl Base URL of the chat websocket backend.
+ * @property enableLogging When `true`, enables Ktor's verbose logging for easier debugging.
+ */
 data class ChatWsConfig(
     val baseWsUrl: String = "wss://chat.homebin.dev",
     val enableLogging: Boolean = true
 )
 
-class KtorMessageRepository(
+/**
+ * [MessageRepository] implementation that targets the ChatWS backend via Ktor's websocket client.
+ * It performs reconnection with exponential backoff and exposes state via Kotlin flows.
+ *
+ * Example usage inside an Android `ViewModel`:
+ * ```kotlin
+ * class ChatViewModel(
+ *     private val repository: MessageRepository = ChatWsMessageRepository()
+ * ) : ViewModel() {
+ *
+ *     private val _messages = MutableStateFlow<List<Message>>(emptyList())
+ *     val messages: StateFlow<List<Message>> = _messages.asStateFlow()
+ *
+ *     init {
+ *         repository.incomingMessages
+ *             .onEach { incoming -> _messages.update { it + incoming } }
+ *             .launchIn(viewModelScope)
+ *     }
+ *
+ *     fun connect(roomId: Int, userName: String) {
+ *         repository.joinRoom(roomId, userName)
+ *     }
+ *
+ *     fun sendMessage(text: String) {
+ *         viewModelScope.launch {
+ *             repository.sendMessage(text)
+ *         }
+ *     }
+ *
+ *     override fun onCleared() {
+ *         viewModelScope.launch { repository.disconnect() }
+ *         super.onCleared()
+ *     }
+ * }
+ * ```
+ */
+class ChatWsMessageRepository(
     private val config: ChatWsConfig = ChatWsConfig(),
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 ) : MessageRepository {
@@ -49,6 +91,16 @@ class KtorMessageRepository(
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Idle)
     override val connectionState: Flow<ConnectionState> = _connectionState.asStateFlow()
 
+    /**
+     * Opens the websocket connection and starts a background reader coroutine.
+     *
+     * Example usage from a `ViewModel`:
+     * ```kotlin
+     * fun connect(roomId: Int, userName: String) {
+     *     repository.joinRoom(roomId, userName)
+     * }
+     * ```
+     */
     override fun joinRoom(roomID: Int, userName: String?) {
         scope.launch {
             _connectionState.emit(ConnectionState.Connecting)
@@ -73,6 +125,9 @@ class KtorMessageRepository(
         }
     }
 
+    /**
+     * Launches a coroutine that continuously reads frames from the websocket and forwards messages.
+     */
     private fun startReader() {
         readerJob?.cancel()
         val s = session ?: return
@@ -103,6 +158,20 @@ class KtorMessageRepository(
         }
     }
 
+    /**
+     * Attempts to send the supplied message frame to the remote peer.
+     *
+     * @return `true` if the frame was sent, `false` when no active connection is available or sending failed.
+     *
+     * Example usage from a `ViewModel`:
+     * ```kotlin
+     * fun sendMessage(text: String) {
+     *     viewModelScope.launch {
+     *         repository.sendMessage(text)
+     *     }
+     * }
+     * ```
+     */
     override suspend fun sendMessage(message: String): Boolean {
         val s = session ?: return false
         return try {
@@ -114,16 +183,29 @@ class KtorMessageRepository(
         }
     }
 
+    /**
+     * Gracefully terminates the websocket session and resets the internal state flows.
+     *
+     * Example usage from a `ViewModel`:
+     * ```kotlin
+     * override fun onCleared() {
+     *     viewModelScope.launch { repository.disconnect() }
+     *     super.onCleared()
+     * }
+     * ```
+     */
     override suspend fun disconnect() {
         session?.close(CloseReason(CloseReason.Codes.NORMAL, "User closed"))
         closeInternal()
         _connectionState.emit(ConnectionState.Disconnected(null))
     }
 
+    /**
+     * Cancels the reader job and clears the current session reference.
+     */
     private fun closeInternal() {
         readerJob?.cancel()
         readerJob = null
         session = null
     }
 }
-
