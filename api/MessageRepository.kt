@@ -9,13 +9,6 @@ import de.hsfl.mobilecomputing.chatws.model.Message
  */
 interface MessageRepository {
     /**
-     * Creates a new chat room on the backend.
-     *
-     * @return [ApiResponse] describing whether the room was created successfully and, if so, its identifier.
-     */
-    suspend fun createRoom(): ApiResponse<CreateRoomResponse>
-
-    /**
      * Connects the repository to the given room and starts listening for incoming messages.
      *
      * @param roomID Identifier of the room to join.
