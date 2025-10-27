@@ -1,7 +1,7 @@
 package de.hsfl.mobilecomputing.chatws.api
 
 import kotlinx.coroutines.flow.Flow
-import com.example.chatws.model.Message
+import de.hsfl.mobilecomputing.chatws.model.Message
 
 /**
  * Abstraction for exchanging chat messages with the websocket backend.

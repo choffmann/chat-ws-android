@@ -1,8 +1,8 @@
 package de.hsfl.mobilecomputing.chatws.impl
 
-import com.example.chatws.api.*
-import com.example.chatws.model.*
-import com.example.chatws.net.AppJson
+import de.hsfl.mobilecomputing.chatws.api.*
+import de.hsfl.mobilecomputing.chatws.model.*
+import de.hsfl.mobilecomputing.chatws.net.AppJson
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
