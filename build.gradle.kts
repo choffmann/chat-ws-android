@@ -14,7 +14,7 @@ val libraryArtifactId = "chat-ws-android"
 val projectUrl = "https://github.com/choffmann/chat-ws-android"
 
 android {
-    namespace = "de.hsfl.mobilecomputing.chatws"
+    namespace = "io.github.choffmann.chatwsandroid"
     compileSdk = 36
 
     defaultConfig {

@@ -1,4 +1,4 @@
-package de.hsfl.mobilecomputing.chatws.model
+package io.github.choffmann.chatwsandroid.model
 
 import kotlinx.serialization.Serializable
 import kotlinx.datetime.LocalDateTime

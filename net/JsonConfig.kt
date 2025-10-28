@@ -1,4 +1,4 @@
-package de.hsfl.mobilecomputing.chatws.net
+package io.github.choffmann.chatwsandroid.net
 
 import kotlinx.serialization.json.Json
 

@@ -1,8 +1,8 @@
-package de.hsfl.mobilecomputing.chatws.impl
+package io.github.choffmann.chatwsandroid.impl
 
-import de.hsfl.mobilecomputing.chatws.api.*
-import de.hsfl.mobilecomputing.chatws.model.*
-import de.hsfl.mobilecomputing.chatws.net.AppJson
+import io.github.choffmann.chatwsandroid.api.*
+import io.github.choffmann.chatwsandroid.model.*
+import io.github.choffmann.chatwsandroid.net.AppJson
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp

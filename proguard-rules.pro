@@ -1,3 +1,2 @@
 -keepclassmembers class kotlinx.serialization.** { *; }
--keepclassmembers class de.hsfl.mobilecomputing.chatws.model.** { *; }
-
+-keepclassmembers class io.github.choffmann.chatwsandroid.model.** { *; }

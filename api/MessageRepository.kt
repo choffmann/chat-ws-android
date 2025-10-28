@@ -1,7 +1,7 @@
-package de.hsfl.mobilecomputing.chatws.api
+package io.github.choffmann.chatwsandroid.api
 
 import kotlinx.coroutines.flow.Flow
-import de.hsfl.mobilecomputing.chatws.model.Message
+import io.github.choffmann.chatwsandroid.model.Message
 
 /**
  * Abstraction for exchanging chat messages with the websocket backend.
