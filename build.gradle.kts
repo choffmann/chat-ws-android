@@ -2,8 +2,8 @@ import java.util.Base64
 
 plugins {
     id("com.android.library") version "8.13.0"
-    kotlin("android") version "2.0.21"
-    kotlin("plugin.serialization") version "2.0.21"
+    kotlin("android") version "2.2.21"
+    kotlin("plugin.serialization") version "2.2.21"
     id("com.vanniktech.maven.publish") version "0.34.0"
 }
 
