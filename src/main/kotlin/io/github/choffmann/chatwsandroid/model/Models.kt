@@ -7,10 +7,11 @@ import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
-import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.datetime.toInstant
+import kotlin.time.ExperimentalTime
+import kotlin.time.Instant
 
 /**
  * Representation of a chat participant.
@@ -25,7 +26,7 @@ data class User(
 )
 
 /**
- * Serialiser that encodes a [LocalDateTime] as an ISO-8601 UTC instant string.
+ * Serializer that encodes a [LocalDateTime] as an ISO-8601 UTC instant string.
  * This matches the payload emitted by the backend.
  */
 object UtcLocalDateTimeAsInstantString : KSerializer<LocalDateTime> {
@@ -34,6 +35,7 @@ object UtcLocalDateTimeAsInstantString : KSerializer<LocalDateTime> {
     /**
      * Parses the instant string received from the wire into a [LocalDateTime] in UTC.
      */
+    @OptIn(ExperimentalTime::class)
     override fun deserialize(decoder: Decoder): LocalDateTime {
         val s = decoder.decodeString()
         return Instant.parse(s).toLocalDateTime(TimeZone.UTC)
@@ -42,6 +44,7 @@ object UtcLocalDateTimeAsInstantString : KSerializer<LocalDateTime> {
     /**
      * Converts the provided [LocalDateTime] to a UTC instant string accepted by the backend.
      */
+    @OptIn(ExperimentalTime::class)
     override fun serialize(encoder: Encoder, value: LocalDateTime) {
         val iso = value.toInstant(TimeZone.UTC).toString()
         encoder.encodeString(iso)
