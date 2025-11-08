@@ -1,6 +1,5 @@
-package io.github.choffmann.chatwsandroid.impl
+package io.github.choffmann.chatwsandroid
 
-import io.github.choffmann.chatwsandroid.api.*
 import io.github.choffmann.chatwsandroid.model.*
 import io.github.choffmann.chatwsandroid.net.AppJson
 import io.ktor.client.HttpClient
@@ -21,10 +20,12 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlin.time.Duration.Companion.seconds
+import android.util.Base64
 
 /**
- * Configuration for the websocket client used by [ChatWsMessageRepository].
+ * Configuration for the websocket client used by [ChatWsClient].
  *
  * @property baseWsUrl Base URL of the chat websocket backend.
  * @property enableLogging When `true`, enables Ktor's verbose logging for easier debugging.
@@ -35,45 +36,45 @@ data class ChatWsConfig(
 )
 
 /**
- * [MessageRepository] implementation that targets the ChatWS backend via Ktor's websocket client.
- * It performs reconnection with exponential backoff and exposes state via Kotlin flows.
+ * Websocket client for connecting to the ChatWS backend via Ktor.
+ * Performs automatic reconnection with exponential backoff and exposes state via Kotlin flows.
  *
  * Example usage inside an Android `ViewModel`:
  * ```kotlin
  * class ChatViewModel(
- *     private val repository: MessageRepository = ChatWsMessageRepository()
+ *     private val client: ChatWsClient = ChatWsClient()
  * ) : ViewModel() {
  *
  *     private val _messages = MutableStateFlow<List<Message>>(emptyList())
  *     val messages: StateFlow<List<Message>> = _messages.asStateFlow()
  *
  *     init {
- *         repository.incomingMessages
+ *         client.incomingMessages
  *             .onEach { incoming -> _messages.update { it + incoming } }
  *             .launchIn(viewModelScope)
  *     }
  *
  *     fun connect(roomId: Int, userName: String) {
- *         repository.joinRoom(roomId, userName)
+ *         client.joinRoom(roomId, userName)
  *     }
  *
  *     fun sendMessage(text: String) {
  *         viewModelScope.launch {
- *             repository.sendMessage(text)
+ *             client.sendMessage(text)
  *         }
  *     }
  *
  *     override fun onCleared() {
- *         viewModelScope.launch { repository.disconnect() }
+ *         viewModelScope.launch { client.disconnect() }
  *         super.onCleared()
  *     }
  * }
  * ```
  */
-class ChatWsMessageRepository(
+class ChatWsClient(
     private val config: ChatWsConfig = ChatWsConfig(),
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-) : MessageRepository {
+) {
 
     private val client = HttpClient(OkHttp) {
         install(ContentNegotiation) { json(AppJson) }
@@ -87,22 +88,33 @@ class ChatWsMessageRepository(
     private val _incomingMessages = MutableSharedFlow<Message>(
         replay = 0, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
-    override val incomingMessages: Flow<Message> = _incomingMessages.asSharedFlow()
+
+    /**
+     * Stream of domain [Message] instances received from the websocket connection.
+     */
+    val incomingMessages: Flow<Message> = _incomingMessages.asSharedFlow()
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Idle)
-    override val connectionState: Flow<ConnectionState> = _connectionState.asStateFlow()
+
+    /**
+     * Stream that reports the current [ConnectionState] of the client.
+     */
+    val connectionState: Flow<ConnectionState> = _connectionState.asStateFlow()
 
     /**
      * Opens the websocket connection and starts a background reader coroutine.
      *
+     * @param roomID Identifier of the room to join.
+     * @param userName Optional username that should be announced to other participants.
+     *
      * Example usage from a `ViewModel`:
      * ```kotlin
      * fun connect(roomId: Int, userName: String) {
-     *     repository.joinRoom(roomId, userName)
+     *     client.joinRoom(roomId, userName)
      * }
      * ```
      */
-    override fun joinRoom(roomID: Int, userName: String?) {
+    fun joinRoom(roomID: Int, userName: String? = null) {
         scope.launch {
             _connectionState.emit(ConnectionState.Connecting)
             var attempt = 0
@@ -162,21 +174,57 @@ class ChatWsMessageRepository(
     /**
      * Attempts to send the supplied message frame to the remote peer.
      *
+     * @param message UTF-8 text payload that will be delivered to the room.
      * @return `true` if the frame was sent, `false` when no active connection is available or sending failed.
      *
      * Example usage from a `ViewModel`:
      * ```kotlin
      * fun sendMessage(text: String) {
      *     viewModelScope.launch {
-     *         repository.sendMessage(text)
+     *         client.sendMessage(text)
      *     }
      * }
      * ```
      */
-    override suspend fun sendMessage(message: String): Boolean {
+    suspend fun sendMessage(message: String): Boolean {
         val s = session ?: return false
         return try {
             s.send(Frame.Text(message))
+            true
+        } catch (t: Throwable) {
+            _connectionState.emit(ConnectionState.Disconnected(t))
+            false
+        }
+    }
+
+    /**
+     * Attempts to send an image to the remote peer.
+     * The image is Base64-encoded and sent as a JSON message with contentType="image".
+     *
+     * @param imageData Raw byte array of the image file.
+     * @param mimeType MIME type of the image (e.g., "image/jpeg", "image/png").
+     * @return `true` if the image was sent, `false` when no active connection is available or sending failed.
+     *
+     * Example usage from a `ViewModel`:
+     * ```kotlin
+     * fun sendImage(imageBytes: ByteArray) {
+     *     viewModelScope.launch {
+     *         client.sendImage(imageBytes, "image/jpeg")
+     *     }
+     * }
+     * ```
+     */
+    suspend fun sendImage(imageData: ByteArray, mimeType: String): Boolean {
+        val s = session ?: return false
+        return try {
+            val base64Image = Base64.encodeToString(imageData, Base64.NO_WRAP)
+            val imageMessage = mapOf(
+                "contentType" to "image",
+                "imageData" to base64Image,
+                "mimeType" to mimeType
+            )
+            val json = AppJson.encodeToString(imageMessage)
+            s.send(Frame.Text(json))
             true
         } catch (t: Throwable) {
             _connectionState.emit(ConnectionState.Disconnected(t))
@@ -190,12 +238,12 @@ class ChatWsMessageRepository(
      * Example usage from a `ViewModel`:
      * ```kotlin
      * override fun onCleared() {
-     *     viewModelScope.launch { repository.disconnect() }
+     *     viewModelScope.launch { client.disconnect() }
      *     super.onCleared()
      * }
      * ```
      */
-    override suspend fun disconnect() {
+    suspend fun disconnect() {
         session?.close(CloseReason(CloseReason.Codes.NORMAL, "User closed"))
         closeInternal()
         _connectionState.emit(ConnectionState.Disconnected(null))

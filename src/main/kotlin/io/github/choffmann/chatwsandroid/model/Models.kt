@@ -52,18 +52,32 @@ object UtcLocalDateTimeAsInstantString : KSerializer<LocalDateTime> {
 }
 
 /**
+ * Content type of a chat message.
+ */
+enum class ContentType {
+    TEXT,
+    IMAGE
+}
+
+/**
  * Domain model describing a chat message exchanged via websocket.
  *
  * @property type Logical message type (e.g. `message`, `system`).
- * @property message Human readable payload content.
+ * @property message Human readable payload content (for text messages).
  * @property timestamp Timestamp supplied by the backend in UTC.
  * @property user Sender information.
+ * @property contentType Type of content in this message (text or image).
+ * @property imageData Base64-encoded image data (only for image messages).
+ * @property mimeType MIME type of the image (e.g. "image/jpeg", "image/png").
  */
 @Serializable
 data class Message(
     val type: String = "message", // "message", "system"
-    val message: String,
+    val message: String = "",
     @Serializable(with = UtcLocalDateTimeAsInstantString::class)
     val timestamp: LocalDateTime,
     val user: User,
+    val contentType: String = "text", // "text", "image"
+    val imageData: String? = null,
+    val mimeType: String? = null,
 )

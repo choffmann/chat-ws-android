@@ -1,4 +1,4 @@
-package io.github.choffmann.chatwsandroid.api
+package io.github.choffmann.chatwsandroid
 
 /**
  * Represents the lifecycle of the underlying websocket connection.
