@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "io.github.choffmann"
-version = "0.1.1"
+version = "0.1.2-SNAPSHOT"
 
 val libraryArtifactId = "chat-ws-android"
 val projectUrl = "https://github.com/choffmann/chat-ws-android"
