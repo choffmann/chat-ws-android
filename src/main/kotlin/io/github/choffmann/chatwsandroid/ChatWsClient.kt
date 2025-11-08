@@ -172,9 +172,10 @@ class ChatWsClient(
     }
 
     /**
-     * Attempts to send the supplied message frame to the remote peer.
+     * Attempts to send a text message to the remote peer.
      *
      * @param message UTF-8 text payload that will be delivered to the room.
+     * @param additionalInfo Optional key-value pairs for additional metadata.
      * @return `true` if the frame was sent, `false` when no active connection is available or sending failed.
      *
      * Example usage from a `ViewModel`:
@@ -186,10 +187,19 @@ class ChatWsClient(
      * }
      * ```
      */
-    suspend fun sendMessage(message: String): Boolean {
+    suspend fun sendMessage(
+        message: String,
+        additionalInfo: Map<String, String>? = null
+    ): Boolean {
         val s = session ?: return false
         return try {
-            s.send(Frame.Text(message))
+            val outgoingMessage = OutgoingMessage(
+                type = MessageType.MESSAGE,
+                message = message,
+                additionalInfo = additionalInfo
+            )
+            val json = AppJson.encodeToString(outgoingMessage)
+            s.send(Frame.Text(json))
             true
         } catch (t: Throwable) {
             _connectionState.emit(ConnectionState.Disconnected(t))
@@ -199,10 +209,11 @@ class ChatWsClient(
 
     /**
      * Attempts to send an image to the remote peer.
-     * The image is Base64-encoded and sent as a JSON message with contentType="image".
+     * The image is Base64-encoded and sent as a JSON message.
      *
      * @param imageData Raw byte array of the image file.
      * @param mimeType MIME type of the image (e.g., "image/jpeg", "image/png").
+     * @param additionalInfo Optional key-value pairs for additional metadata. The mimeType will be automatically added here.
      * @return `true` if the image was sent, `false` when no active connection is available or sending failed.
      *
      * Example usage from a `ViewModel`:
@@ -214,16 +225,21 @@ class ChatWsClient(
      * }
      * ```
      */
-    suspend fun sendImage(imageData: ByteArray, mimeType: String): Boolean {
+    suspend fun sendImage(
+        imageData: ByteArray,
+        mimeType: String = "image/jpeg",
+        additionalInfo: Map<String, String>? = null
+    ): Boolean {
         val s = session ?: return false
         return try {
             val base64Image = Base64.encodeToString(imageData, Base64.NO_WRAP)
-            val imageMessage = mapOf(
-                "contentType" to "image",
-                "imageData" to base64Image,
-                "mimeType" to mimeType
+            val mergedInfo = (additionalInfo ?: emptyMap()) + mapOf("mimeType" to mimeType)
+            val outgoingMessage = OutgoingMessage(
+                type = MessageType.IMAGE,
+                message = base64Image,
+                additionalInfo = mergedInfo
             )
-            val json = AppJson.encodeToString(imageMessage)
+            val json = AppJson.encodeToString(outgoingMessage)
             s.send(Frame.Text(json))
             true
         } catch (t: Throwable) {

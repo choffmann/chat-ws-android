@@ -1,6 +1,7 @@
 package io.github.choffmann.chatwsandroid.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 import kotlinx.datetime.LocalDateTime
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.descriptors.PrimitiveKind
@@ -52,32 +53,49 @@ object UtcLocalDateTimeAsInstantString : KSerializer<LocalDateTime> {
 }
 
 /**
- * Content type of a chat message.
+ * Type of message (system, user message, or image).
  */
-enum class ContentType {
-    TEXT,
+@Serializable
+enum class MessageType {
+    @SerialName("system")
+    SYSTEM,
+
+    @SerialName("message")
+    MESSAGE,
+
+    @SerialName("image")
     IMAGE
 }
 
 /**
- * Domain model describing a chat message exchanged via websocket.
+ * Domain model describing a chat message received from the server.
  *
- * @property type Logical message type (e.g. `message`, `system`).
- * @property message Human readable payload content (for text messages).
+ * @property type Message type (system, message, or image).
+ * @property message Message content (text for regular messages, Base64-encoded data for images).
  * @property timestamp Timestamp supplied by the backend in UTC.
  * @property user Sender information.
- * @property contentType Type of content in this message (text or image).
- * @property imageData Base64-encoded image data (only for image messages).
- * @property mimeType MIME type of the image (e.g. "image/jpeg", "image/png").
+ * @property additionalInfo Optional key-value pairs for additional metadata (e.g., mimeType, imageData for images).
  */
 @Serializable
 data class Message(
-    val type: String = "message", // "message", "system"
-    val message: String = "",
+    val type: MessageType,
+    val message: String,
     @Serializable(with = UtcLocalDateTimeAsInstantString::class)
     val timestamp: LocalDateTime,
     val user: User,
-    val contentType: String = "text", // "text", "image"
-    val imageData: String? = null,
-    val mimeType: String? = null,
+    val additionalInfo: Map<String, String>? = null
+)
+
+/**
+ * Model for outgoing messages sent to the server.
+ *
+ * @property type Message type being sent (system, message, or image).
+ * @property message The message content (text for message type, Base64-encoded data for image type).
+ * @property additionalInfo Optional key-value pairs for additional metadata that will be broadcast to all participants.
+ */
+@Serializable
+data class OutgoingMessage(
+    val type: MessageType,
+    val message: String,
+    val additionalInfo: Map<String, String>? = null
 )

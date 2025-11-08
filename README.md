@@ -112,12 +112,75 @@ client.connectionState.collectLatest { state ->
 
 `ConnectionState.Disconnected` exposes an optional `cause` you can surface for diagnostics or retry logic.
 
-### Sending Images
+## Message Format
 
-The library supports sending images through the websocket connection. Images are Base64-encoded and sent as JSON messages.
+The library uses a structured JSON format for all outgoing messages:
+
+```json
+{
+  "type": "message",
+  "message": "Hello World",
+  "additionalInfo": {
+    "key": "value"
+  }
+}
+```
+
+**Fields:**
+- `type`: Either `"message"` (text), `"image"` (Base64-encoded image data), or `"system"` (system messages)
+- `message`: The actual content (text string or Base64 image data)
+- `additionalInfo` (optional): Key-value pairs for custom metadata that will be broadcast to all participants
+
+### Sending Text Messages
 
 ```kotlin
-// Add image sending to your repository
+// Simple text message
+client.sendMessage("Hello World")
+
+// Message with additional metadata
+client.sendMessage(
+    message = "Hello World",
+    additionalInfo = mapOf(
+        "language" to "en",
+        "priority" to "high"
+    )
+)
+```
+
+### Sending Images
+
+Images are Base64-encoded and sent with `type: "image"`. The MIME type is automatically included in `additionalInfo`.
+
+```kotlin
+// Simple image send
+client.sendImage(imageBytes, "image/jpeg")
+
+// Image with additional metadata
+client.sendImage(
+    imageData = imageBytes,
+    mimeType = "image/png",
+    additionalInfo = mapOf(
+        "caption" to "My vacation photo",
+        "location" to "Berlin"
+    )
+)
+```
+
+The sent JSON will look like:
+```json
+{
+  "type": "image",
+  "message": "iVBORw0KGgoAAAANSUhEUgAA...",
+  "additionalInfo": {
+    "mimeType": "image/png",
+    "caption": "My vacation photo",
+    "location": "Berlin"
+  }
+}
+```
+
+**Example in your repository:**
+```kotlin
 interface ChatRepository {
     suspend fun sendImage(imageData: ByteArray, mimeType: String): Boolean
 }
@@ -129,47 +192,29 @@ class ChatRepositoryImpl(
         return client.sendImage(imageData, mimeType)
     }
 }
-
-// Use it in your ViewModel
-fun sendImage(uri: Uri, context: Context) = viewModelScope.launch {
-    try {
-        val inputStream = context.contentResolver.openInputStream(uri)
-        val imageBytes = inputStream?.readBytes()
-        inputStream?.close()
-
-        if (imageBytes != null) {
-            val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
-            val success = repository.sendImage(imageBytes, mimeType)
-            if (success) {
-                // Image sent successfully
-            } else {
-                // Failed to send image (not connected)
-            }
-        }
-    } catch (e: Exception) {
-        // Handle error
-    }
-}
 ```
 
 ### Receiving Images
 
-Incoming messages with `contentType = "image"` contain Base64-encoded image data:
+Incoming messages with `type = MessageType.IMAGE` contain Base64-encoded image data in the `message` field. Additional metadata like MIME type is available in `additionalInfo`:
 
 ```kotlin
 client.incomingMessages
     .onEach { message ->
-        when (message.contentType) {
-            "text" -> {
+        when (message.type) {
+            MessageType.MESSAGE -> {
                 // Handle text message
                 println("Text: ${message.message}")
             }
-            "image" -> {
-                // Handle image message
-                message.imageData?.let { base64Data ->
-                    val imageBytes = Base64.decode(base64Data, Base64.DEFAULT)
-                    // Display or save the image
-                }
+            MessageType.IMAGE -> {
+                // Handle image message - message field contains Base64 data
+                val imageBytes = Base64.decode(message.message, Base64.DEFAULT)
+                val mimeType = message.additionalInfo?.get("mimeType") ?: "image/jpeg"
+                // Display or save the image
+            }
+            MessageType.SYSTEM -> {
+                // Handle system message
+                println("System: ${message.message}")
             }
         }
     }
