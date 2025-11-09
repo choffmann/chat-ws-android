@@ -11,15 +11,21 @@ repositories {
 }
 
 dependencies {
-    implementation("io.github.choffmann:chat-ws-android:0.1.1")
+    implementation("io.github.choffmann:chat-ws-android:0.1.2")
 }
 ```
 
 Snapshots (if published) are available from Sonatype:
 
 ```kotlin
-repositories {
-    maven("https://s01.oss.sonatype.org/content/repositories/snapshots/")
+maven {
+    name = "Central Portal Snapshots"
+    url = uri("https://central.sonatype.com/repository/maven-snapshots/")
+
+    // Only search this repository for the specific dependency
+    content {
+        includeModule("io.github.choffmann", "chat-ws-android")
+    }
 }
 ```
 
@@ -127,6 +133,7 @@ The library uses a structured JSON format for all outgoing messages:
 ```
 
 **Fields:**
+
 - `type`: Either `"message"` (text), `"image"` (Base64-encoded image data), or `"system"` (system messages)
 - `message`: The actual content (text string or Base64 image data)
 - `additionalInfo` (optional): Key-value pairs for custom metadata that will be broadcast to all participants
@@ -167,6 +174,7 @@ client.sendImage(
 ```
 
 The sent JSON will look like:
+
 ```json
 {
   "type": "image",
@@ -180,6 +188,7 @@ The sent JSON will look like:
 ```
 
 **Example in your repository:**
+
 ```kotlin
 interface ChatRepository {
     suspend fun sendImage(imageData: ByteArray, mimeType: String): Boolean
@@ -242,7 +251,7 @@ Alternatively export them as environment variables (`ORG_GRADLE_PROJECT_mavenCen
 ## Releasing
 
 1. Bump the version in `build.gradle.kts`.
-2. Commit and tag the release (`git tag v0.1.1 && git push --tags`).
+2. Commit and tag the release (`git tag v0.1.2 && git push --tags`).
 3. (Optional) Run `./gradlew publishToMavenCentral` locally.
 4. Use GitHub release or manual workflow dispatch to trigger `.github/workflows/publish.yml`.
 5. In Sonatype Central (<https://s01.oss.sonatype.org/>), close and release the staged repository so it syncs to Maven Central.

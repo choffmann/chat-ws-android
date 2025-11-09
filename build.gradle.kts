@@ -30,7 +30,7 @@ android {
 }
 
 mavenPublishing {
-  coordinates("io.github.choffmann", "chat-ws-android", "0.1.1")
+  coordinates("io.github.choffmann", "chat-ws-android", "0.1.2-SNAPSHOT")
 
   pom {
     name.set(libraryArtifactId)
