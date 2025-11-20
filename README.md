@@ -39,7 +39,7 @@ interface ChatRepository {
     val messages: Flow<Message>
     val connectionState: Flow<ConnectionState>
 
-    fun connect(roomId: Int, userName: String)
+    fun connect(roomId: Int, userName: String? = null, userId: String? = null)
     suspend fun sendMessage(text: String): Boolean
     suspend fun disconnect()
 }
@@ -51,8 +51,8 @@ class ChatRepositoryImpl(
     override val messages: Flow<Message> = client.incomingMessages
     override val connectionState: Flow<ConnectionState> = client.connectionState
 
-    override fun connect(roomId: Int, userName: String) {
-        client.joinRoom(roomId, userName)
+    override fun connect(roomId: Int, userName: String?, userId: String?) {
+        client.joinRoom(roomId, userName, userId)
     }
 
     override suspend fun sendMessage(text: String): Boolean {
@@ -77,7 +77,23 @@ class ChatViewModel(
             .launchIn(viewModelScope)
     }
 
-    fun connect(roomId: Int, userName: String) = repository.connect(roomId, userName)
+    // Connect with username only - creates new ephemeral user
+    fun connectWithName(roomId: Int, userName: String) {
+        repository.connect(roomId, userName = userName)
+    }
+
+    // Connect with userId only - uses existing registered user
+    fun connectWithId(roomId: Int, userId: String) {
+        repository.connect(roomId, userId = userId)
+    }
+
+    // Connect anonymously - server assigns random name
+    fun connectAnonymously(roomId: Int) {
+        repository.connect(roomId)
+    }
+
+    // Note: If both userId and userName are provided, only userId is used
+    // and userName is ignored by the server
 
     fun send(text: String) = viewModelScope.launch { repository.sendMessage(text) }
 
@@ -87,6 +103,33 @@ class ChatViewModel(
     }
 }
 ```
+
+### Joining Rooms: userName vs userId
+
+The library supports three ways to join a room:
+
+1. **With `userName` only**: Creates a new ephemeral user with the specified name
+   ```kotlin
+   client.joinRoom(roomId = 1, userName = "Alice")
+   ```
+   - Server creates a new user with a fresh UUID
+   - User exists only for this session
+
+2. **With `userId` only**: Uses an existing registered user from the server
+   ```kotlin
+   client.joinRoom(roomId = 1, userId = "existing-uuid-here")
+   ```
+   - Server looks up the user in its registry
+   - Uses stored name and properties
+   - Returns 404 if user not found
+
+3. **Anonymous**: Let the server assign a random name
+   ```kotlin
+   client.joinRoom(roomId = 1)
+   ```
+   - Server picks a random humorous name (e.g., "Kotlin Kevin", "Gradle Gero")
+
+**Important:** If you provide both `userName` and `userId`, only `userId` is used and `userName` is ignored. The `userId` parameter always takes precedence.
 
 ### Configuration
 

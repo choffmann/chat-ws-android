@@ -105,16 +105,33 @@ class ChatWsClient(
      * Opens the websocket connection and starts a background reader coroutine.
      *
      * @param roomID Identifier of the room to join.
-     * @param userName Optional username that should be announced to other participants.
+     * @param userName Optional username for creating a new ephemeral user (ignored if userId is provided).
+     * @param userId Optional user ID to retrieve and use an existing registered user from the server.
+     *
+     * **Important:** If `userId` is provided, it takes precedence and `userName` is ignored.
+     * The server will look up the registered user and use their stored name/properties.
      *
      * Example usage from a `ViewModel`:
      * ```kotlin
-     * fun connect(roomId: Int, userName: String) {
-     *     client.joinRoom(roomId, userName)
+     * // Join with username only - creates new ephemeral user
+     * fun connectWithName(roomId: Int, userName: String) {
+     *     client.joinRoom(roomId, userName = userName)
      * }
+     *
+     * // Join with userId only - uses existing registered user
+     * fun connectWithId(roomId: Int, userId: String) {
+     *     client.joinRoom(roomId, userId = userId)
+     * }
+     *
+     * // Join anonymously - server assigns random name
+     * fun connectAnonymously(roomId: Int) {
+     *     client.joinRoom(roomId)
+     * }
+     *
+     * // Note: If both userId and userName are provided, only userId is used
      * ```
      */
-    fun joinRoom(roomID: Int, userName: String? = null) {
+    fun joinRoom(roomID: Int, userName: String? = null, userId: String? = null) {
         scope.launch {
             _connectionState.emit(ConnectionState.Connecting)
             var attempt = 0
@@ -122,7 +139,10 @@ class ChatWsClient(
                 try {
                     val wsUrl = buildString {
                         append("${config.baseWsUrl}/join/$roomID")
-                        if (!userName.isNullOrEmpty()) append("?user=$userName")
+                        val params = mutableListOf<String>()
+                        if (!userName.isNullOrEmpty()) params.add("user=$userName")
+                        if (!userId.isNullOrEmpty()) params.add("userId=$userId")
+                        if (params.isNotEmpty()) append("?${params.joinToString("&")}")
                     }
                     session = client.webSocketSession(urlString = wsUrl)
                     _connectionState.emit(ConnectionState.Connected)
