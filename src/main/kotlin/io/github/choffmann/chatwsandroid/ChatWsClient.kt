@@ -3,24 +3,18 @@ package io.github.choffmann.chatwsandroid
 import io.github.choffmann.chatwsandroid.model.*
 import io.github.choffmann.chatwsandroid.net.AppJson
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logging
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocketSession
-import io.ktor.client.request.post
-import io.ktor.http.ContentType
-import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import kotlinx.coroutines.flow.*
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
 import kotlin.time.Duration.Companion.seconds
 import android.util.Base64
 
@@ -93,6 +87,74 @@ class ChatWsClient(
      * Stream of domain [Message] instances received from the websocket connection.
      */
     val incomingMessages: Flow<Message> = _incomingMessages.asSharedFlow()
+
+    /**
+     * Convenience flow that emits only text messages (type = "message").
+     *
+     * @since 0.2.0
+     */
+    val textMessages: Flow<Message>
+        get() = incomingMessages.filter { it.type == MessageTypes.MESSAGE }
+
+    /**
+     * Convenience flow that emits only system messages (type = "system").
+     *
+     * @since 0.2.0
+     */
+    val systemMessages: Flow<Message>
+        get() = incomingMessages.filter { it.type == MessageTypes.SYSTEM }
+
+    /**
+     * Convenience flow that emits only image messages (type = "image").
+     *
+     * @since 0.2.0
+     */
+    val imageMessages: Flow<Message>
+        get() = incomingMessages.filter { it.type == MessageTypes.IMAGE }
+
+    /**
+     * Convenience flow that emits only message update events (type = "message_updated").
+     *
+     * @since 0.2.0
+     */
+    val messageUpdates: Flow<Message>
+        get() = incomingMessages.filter { it.type == MessageTypes.MESSAGE_UPDATED }
+
+    /**
+     * Convenience flow that emits only typing indicator events (type = "user_typing").
+     *
+     * @since 0.2.0
+     */
+    val typingIndicators: Flow<Message>
+        get() = incomingMessages.filter { it.type == MessageTypes.USER_TYPING }
+
+    /**
+     * Convenience flow that emits only stopped typing events (type = "user_stopped_typing").
+     *
+     * @since 0.2.0
+     */
+    val stoppedTypingIndicators: Flow<Message>
+        get() = incomingMessages.filter { it.type == MessageTypes.USER_STOPPED_TYPING }
+
+    /**
+     * Filter messages by a specific type string.
+     *
+     * Useful for custom event types not covered by convenience properties.
+     *
+     * Example:
+     * ```kotlin
+     * client.messagesByType("user_reaction").collect { reaction ->
+     *     // Handle custom reaction event
+     * }
+     * ```
+     *
+     * @param type The message type to filter for
+     * @return Flow emitting only messages of the specified type
+     *
+     * @since 0.2.0
+     */
+    fun messagesByType(type: String): Flow<Message> =
+        incomingMessages.filter { it.type == type }
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Idle)
 
@@ -214,7 +276,7 @@ class ChatWsClient(
         val s = session ?: return false
         return try {
             val outgoingMessage = OutgoingMessage(
-                type = MessageType.MESSAGE,
+                type = MessageTypes.MESSAGE,
                 message = message,
                 additionalInfo = additionalInfo
             )
@@ -255,7 +317,7 @@ class ChatWsClient(
             val base64Image = Base64.encodeToString(imageData, Base64.NO_WRAP)
             val mergedInfo = (additionalInfo ?: emptyMap()) + mapOf("mimeType" to mimeType)
             val outgoingMessage = OutgoingMessage(
-                type = MessageType.IMAGE,
+                type = MessageTypes.IMAGE,
                 message = base64Image,
                 additionalInfo = mergedInfo
             )
@@ -267,6 +329,79 @@ class ChatWsClient(
             false
         }
     }
+
+    /**
+     * Sends a generic event to all connected clients.
+     *
+     * This is useful for ephemeral events that should not be stored in message history,
+     * such as typing indicators, reactions, presence updates, etc.
+     *
+     * @param eventType The type of event to send (e.g., "user_typing", "user_reaction", or any custom type).
+     * @param message Optional message content. Defaults to empty string for events without content.
+     * @param additionalInfo Optional key-value pairs for event-specific metadata.
+     * @return `true` if the event was sent, `false` when no active connection is available or sending failed.
+     *
+     * Example usage:
+     * ```kotlin
+     * // Send typing indicator
+     * client.sendEvent("user_typing")
+     *
+     * // Send custom reaction with UUID messageId
+     * client.sendEvent(
+     *     eventType = "message_reaction",
+     *     additionalInfo = mapOf(
+     *         "messageId" to "550e8400-e29b-41d4-a716-446655440000",
+     *         "emoji" to "👍"
+     *     )
+     * )
+     * ```
+     *
+     * @since 0.2.0
+     */
+    suspend fun sendEvent(
+        eventType: String,
+        message: String = "",
+        additionalInfo: Map<String, String>? = null
+    ): Boolean {
+        val s = session ?: return false
+        return try {
+            val outgoingMessage = OutgoingMessage(
+                type = eventType,
+                message = message,
+                additionalInfo = additionalInfo
+            )
+            val json = AppJson.encodeToString(outgoingMessage)
+            s.send(Frame.Text(json))
+            true
+        } catch (t: Throwable) {
+            _connectionState.emit(ConnectionState.Disconnected(t))
+            false
+        }
+    }
+
+    /**
+     * Convenience method to send a typing indicator event.
+     *
+     * This event is ephemeral and will not be stored in message history.
+     *
+     * @return `true` if the event was sent, `false` otherwise.
+     *
+     * @since 0.2.0
+     */
+    suspend fun sendTypingIndicator(): Boolean =
+        sendEvent(MessageTypes.USER_TYPING)
+
+    /**
+     * Convenience method to send a stopped typing indicator event.
+     *
+     * This event is ephemeral and will not be stored in message history.
+     *
+     * @return `true` if the event was sent, `false` otherwise.
+     *
+     * @since 0.2.0
+     */
+    suspend fun sendStoppedTypingIndicator(): Boolean =
+        sendEvent(MessageTypes.USER_STOPPED_TYPING)
 
     /**
      * Gracefully terminates the websocket session and resets the internal state flows.
