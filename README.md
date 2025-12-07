@@ -11,7 +11,7 @@ repositories {
 }
 
 dependencies {
-    implementation("io.github.choffmann:chat-ws-android:0.1.2")
+    implementation("io.github.choffmann:chat-ws-android:0.1.4-SNAPSHOT"
 }
 ```
 
