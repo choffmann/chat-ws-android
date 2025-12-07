@@ -101,6 +101,15 @@ class ChatWsClient(
      */
     val connectionState: Flow<ConnectionState> = _connectionState.asStateFlow()
 
+    private val _currentUser = MutableStateFlow<User?>(null)
+
+    /**
+     * Stream that exposes the current user information (ID and name).
+     * This is set when the client successfully joins a room and receives the welcome message from the server.
+     * The user info includes the server-assigned or provided username.
+     */
+    val currentUser: Flow<User?> = _currentUser.asStateFlow()
+
     /**
      * Opens the websocket connection and starts a background reader coroutine.
      *
@@ -142,7 +151,8 @@ class ChatWsClient(
                         val params = mutableListOf<String>()
                         if (!userName.isNullOrEmpty()) params.add("user=$userName")
                         if (!userId.isNullOrEmpty()) params.add("userId=$userId")
-                        if (params.isNotEmpty()) append("?${params.joinToString("&")}")
+                        params.add("userInfo=true")
+                        append("?${params.joinToString("&")}")
                     }
                     session = client.webSocketSession(urlString = wsUrl)
                     _connectionState.emit(ConnectionState.Connected)
@@ -171,7 +181,17 @@ class ChatWsClient(
                         is Frame.Text -> {
                             val text = frame.readText()
                             runCatching { AppJson.decodeFromString<Message>(text) }
-                                .onSuccess { _incomingMessages.tryEmit(it) }
+                                .onSuccess { message ->
+                                    val isSelf = message.additionalInfo?.get("self") == "true"
+                                    val joinedUserId = message.additionalInfo?.get("joinedUserId")
+                                    val joinedUserName = message.additionalInfo?.get("joinedUserName")
+
+                                    if (isSelf && joinedUserId != null && joinedUserName != null) {
+                                        _currentUser.emit(User(id = joinedUserId, name = joinedUserName))
+                                    } else {
+                                        _incomingMessages.tryEmit(message)
+                                    }
+                                }
                                 .onFailure { /* Optional: eigenes Error-Flow */ }
                         }
                         is Frame.Close -> {
@@ -283,6 +303,7 @@ class ChatWsClient(
         session?.close(CloseReason(CloseReason.Codes.NORMAL, "User closed"))
         closeInternal()
         _connectionState.emit(ConnectionState.Disconnected(null))
+        _currentUser.emit(null)
     }
 
     /**

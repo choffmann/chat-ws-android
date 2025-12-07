@@ -38,6 +38,7 @@ Create your own repository interface and implementation:
 interface ChatRepository {
     val messages: Flow<Message>
     val connectionState: Flow<ConnectionState>
+    val currentUser: Flow<User?>
 
     fun connect(roomId: Int, userName: String? = null, userId: String? = null)
     suspend fun sendMessage(text: String): Boolean
@@ -50,6 +51,7 @@ class ChatRepositoryImpl(
 ) : ChatRepository {
     override val messages: Flow<Message> = client.incomingMessages
     override val connectionState: Flow<ConnectionState> = client.connectionState
+    override val currentUser: Flow<User?> = client.currentUser
 
     override fun connect(roomId: Int, userName: String?, userId: String?) {
         client.joinRoom(roomId, userName, userId)
@@ -70,6 +72,9 @@ class ChatViewModel(
 ) : ViewModel() {
     private val _messages = MutableStateFlow<List<Message>>(emptyList())
     val messages: StateFlow<List<Message>> = _messages.asStateFlow()
+
+    val currentUser: StateFlow<User?> = repository.currentUser
+        .stateIn(viewModelScope, SharingStarted.Lazily, null)
 
     init {
         repository.messages
@@ -109,24 +114,30 @@ class ChatViewModel(
 The library supports three ways to join a room:
 
 1. **With `userName` only**: Creates a new ephemeral user with the specified name
+
    ```kotlin
    client.joinRoom(roomId = 1, userName = "Alice")
    ```
+
    - Server creates a new user with a fresh UUID
    - User exists only for this session
 
 2. **With `userId` only**: Uses an existing registered user from the server
+
    ```kotlin
    client.joinRoom(roomId = 1, userId = "existing-uuid-here")
    ```
+
    - Server looks up the user in its registry
    - Uses stored name and properties
    - Returns 404 if user not found
 
 3. **Anonymous**: Let the server assign a random name
+
    ```kotlin
    client.joinRoom(roomId = 1)
    ```
+
    - Server picks a random humorous name (e.g., "Kotlin Kevin", "Gradle Gero")
 
 **Important:** If you provide both `userName` and `userId`, only `userId` is used and `userName` is ignored. The `userId` parameter always takes precedence.
@@ -143,6 +154,24 @@ val client = ChatWsClient(
     )
 )
 ```
+
+### Getting Current User Information
+
+After successfully joining a room, you can access the current user's information (including server-assigned names for anonymous joins):
+
+```kotlin
+client.currentUser.collectLatest { user ->
+    if (user != null) {
+        println("Connected as: ${user.name} (ID: ${user.id})")
+    } else {
+        println("Not connected")
+    }
+}
+```
+
+This is especially useful when joining anonymously, as the server assigns a random name (e.g., "Kotlin Kevin", "Gradle Gero") that you'll want to display in your UI.
+
+**Note:** The library automatically sets the `userInfo=true` query parameter when joining a room, which tells the server to send your user information. The library then filters out your own join notification from the `incomingMessages` flow. When you join a room, the server sends a special join message with a `self` flag that the library uses to extract your user information. This message is not forwarded to `incomingMessages`, so you won't see "You joined room 1" in your message list. Other users will still see the normal join notification.
 
 ### Connection State
 
