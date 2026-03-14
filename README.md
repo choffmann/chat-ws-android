@@ -11,7 +11,7 @@ repositories {
 }
 
 dependencies {
-    implementation("io.github.choffmann:chat-ws-android:0.1.4"
+    implementation("io.github.choffmann:chat-ws-android:1.0.0")
 }
 ```
 
@@ -31,79 +31,36 @@ maven {
 
 ## Quick Start
 
-Create your own repository interface and implementation:
-
 ```kotlin
-// Your repository interface
-interface ChatRepository {
-    val messages: Flow<Message>
-    val connectionState: Flow<ConnectionState>
-    val currentUser: Flow<User?>
-
-    fun connect(roomId: Int, userName: String? = null, userId: String? = null)
-    suspend fun sendMessage(text: String): Boolean
-    suspend fun disconnect()
-}
-
-// Your implementation using ChatWsClient
-class ChatRepositoryImpl(
-    private val client: ChatWsClient = ChatWsClient()
-) : ChatRepository {
-    override val messages: Flow<Message> = client.incomingMessages
-    override val connectionState: Flow<ConnectionState> = client.connectionState
-    override val currentUser: Flow<User?> = client.currentUser
-
-    override fun connect(roomId: Int, userName: String?, userId: String?) {
-        client.joinRoom(roomId, userName, userId)
-    }
-
-    override suspend fun sendMessage(text: String): Boolean {
-        return client.sendMessage(text)
-    }
-
-    override suspend fun disconnect() {
-        client.disconnect()
-    }
-}
-
-// Use your repository in the ViewModel
 class ChatViewModel(
-    private val repository: ChatRepository = ChatRepositoryImpl()
+    private val client: ChatWsClient = ChatWsClient()
 ) : ViewModel() {
     private val _messages = MutableStateFlow<List<Message>>(emptyList())
     val messages: StateFlow<List<Message>> = _messages.asStateFlow()
 
-    val currentUser: StateFlow<User?> = repository.currentUser
+    val currentUser: StateFlow<User?> = client.currentUser
         .stateIn(viewModelScope, SharingStarted.Lazily, null)
 
     init {
-        repository.messages
+        client.incomingMessages
             .onEach { incoming -> _messages.update { it + incoming } }
             .launchIn(viewModelScope)
     }
 
-    // Connect with username only - creates new ephemeral user
-    fun connectWithName(roomId: Int, userName: String) {
-        repository.connect(roomId, userName = userName)
+    fun connect(roomId: Int, userName: String) {
+        client.joinRoom(roomId, userName)
     }
 
-    // Connect with userId only - uses existing registered user
-    fun connectWithId(roomId: Int, userId: String) {
-        repository.connect(roomId, userId = userId)
+    fun send(text: String) = viewModelScope.launch {
+        client.sendMessage(text)
     }
 
-    // Connect anonymously - server assigns random name
-    fun connectAnonymously(roomId: Int) {
-        repository.connect(roomId)
+    fun sendFile(data: ByteArray) = viewModelScope.launch {
+        client.sendBinary(data)
     }
-
-    // Note: If both userId and userName are provided, only userId is used
-    // and userName is ignored by the server
-
-    fun send(text: String) = viewModelScope.launch { repository.sendMessage(text) }
 
     override fun onCleared() {
-        viewModelScope.launch { repository.disconnect() }
+        client.close()
         super.onCleared()
     }
 }
@@ -169,137 +126,140 @@ client.currentUser.collectLatest { user ->
 }
 ```
 
-This is especially useful when joining anonymously, as the server assigns a random name (e.g., "Kotlin Kevin", "Gradle Gero") that you'll want to display in your UI.
+This is especially useful when joining anonymously, as the server assigns a random name that you'll want to display in your UI.
 
-**Note:** The library automatically sets the `userInfo=true` query parameter when joining a room, which tells the server to send your user information. The library then filters out your own join notification from the `incomingMessages` flow. When you join a room, the server sends a special join message with a `self` flag that the library uses to extract your user information. This message is not forwarded to `incomingMessages`, so you won't see "You joined room 1" in your message list. Other users will still see the normal join notification.
+**Note:** The library automatically sets `userInfo=true` when joining a room. The server's self-join message is intercepted to populate `currentUser` and is not forwarded to `incomingMessages`.
 
 ### Connection State
 
-Subscribe to `client.connectionState` (or expose it through your repository) to reflect websocket status in your UI:
+Subscribe to `client.connectionState` to reflect websocket status in your UI:
 
 ```kotlin
 client.connectionState.collectLatest { state ->
     when (state) {
         is ConnectionState.Idle -> // Not connected
-        is ConnectionState.Connecting -> // Connection in progress
+        is ConnectionState.Connecting -> // Connection in progress or reconnecting
         is ConnectionState.Connected -> // Ready to send messages
         is ConnectionState.Disconnected -> // Connection lost, check state.cause
     }
 }
 ```
 
-`ConnectionState.Disconnected` exposes an optional `cause` you can surface for diagnostics or retry logic.
+The client automatically reconnects with exponential backoff (up to 10 seconds) when the connection drops. During reconnection the state cycles through `Disconnected` → `Connecting` → `Connected`.
 
-## Message Format
+## Message Types
 
-The library uses a structured JSON format for all outgoing messages:
-
-```json
-{
-  "type": "message",
-  "message": "Hello World",
-  "additionalInfo": {
-    "key": "value"
-  }
-}
-```
-
-**Fields:**
-
-- `type`: Either `"message"` (text), `"image"` (Base64-encoded image data), or `"system"` (system messages)
-- `message`: The actual content (text string or Base64 image data)
-- `additionalInfo` (optional): Key-value pairs for custom metadata that will be broadcast to all participants
-
-### Sending Text Messages
+The server accepts any string as message type. The library provides predefined constants and supports custom types:
 
 ```kotlin
-// Simple text message
+// Predefined types
+MessageType.MESSAGE  // "message" (default)
+MessageType.IMAGE    // "image"
+MessageType.FILE     // "file"
+MessageType.SYSTEM   // "system" (server-only)
+
+// Custom types
+MessageType("poll")
+MessageType("reaction")
+MessageType("ticket")
+```
+
+## Sending Messages
+
+### Text Messages
+
+```kotlin
+// Simple text message (type defaults to MessageType.MESSAGE)
 client.sendMessage("Hello World")
 
-// Message with additional metadata
+// Custom message type
 client.sendMessage(
-    message = "Hello World",
-    additionalInfo = mapOf(
-        "language" to "en",
-        "priority" to "high"
-    )
+    message = "What's for lunch?",
+    type = MessageType("poll"),
+    additionalInfo = buildJsonObject {
+        put("options", buildJsonArray {
+            add("Pizza")
+            add("Sushi")
+        })
+    }
 )
 ```
 
-### Sending Images
+### Binary Uploads (Images & Files)
 
-Images are Base64-encoded and sent with `type: "image"`. The MIME type is automatically included in `additionalInfo`.
+Files are sent as raw WebSocket binary frames. The server auto-detects the MIME type, saves the file, and broadcasts a message with the download URL to all participants.
 
 ```kotlin
-// Simple image send
-client.sendImage(imageBytes, "image/jpeg")
-
-// Image with additional metadata
-client.sendImage(
-    imageData = imageBytes,
-    mimeType = "image/png",
-    additionalInfo = mapOf(
-        "caption" to "My vacation photo",
-        "location" to "Berlin"
-    )
-)
+// Send an image or file (max 5 MiB)
+client.sendBinary(imageBytes)
 ```
 
-The sent JSON will look like:
+The server responds with a broadcast message like:
 
 ```json
 {
+  "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
   "type": "image",
-  "message": "iVBORw0KGgoAAAANSUhEUgAA...",
+  "message": "https://chat.example.com/uploads/1/a1b2c3d4.png",
+  "timestamp": "2024-04-09T12:35:10.123456789Z",
+  "user": { "id": "...", "name": "Alice" },
   "additionalInfo": {
-    "mimeType": "image/png",
-    "caption": "My vacation photo",
-    "location": "Berlin"
+    "contentType": "image/png",
+    "size": 204800,
+    "fileName": "a1b2c3d4.png"
   }
 }
 ```
 
-**Example in your repository:**
-
-```kotlin
-interface ChatRepository {
-    suspend fun sendImage(imageData: ByteArray, mimeType: String): Boolean
-}
-
-class ChatRepositoryImpl(
-    private val client: ChatWsClient = ChatWsClient()
-) : ChatRepository {
-    override suspend fun sendImage(imageData: ByteArray, mimeType: String): Boolean {
-        return client.sendImage(imageData, mimeType)
-    }
-}
-```
-
-### Receiving Images
-
-Incoming messages with `type = MessageType.IMAGE` contain Base64-encoded image data in the `message` field. Additional metadata like MIME type is available in `additionalInfo`:
+## Receiving Messages
 
 ```kotlin
 client.incomingMessages
     .onEach { message ->
         when (message.type) {
             MessageType.MESSAGE -> {
-                // Handle text message
-                println("Text: ${message.message}")
+                println("${message.user.name}: ${message.message}")
             }
             MessageType.IMAGE -> {
-                // Handle image message - message field contains Base64 data
-                val imageBytes = Base64.decode(message.message, Base64.DEFAULT)
-                val mimeType = message.additionalInfo?.get("mimeType") ?: "image/jpeg"
-                // Display or save the image
+                // message.message contains the download URL
+                val url = message.message
+                val contentType = message.additionalInfo?.get("contentType")
+                    ?.jsonPrimitive?.contentOrNull
+            }
+            MessageType.FILE -> {
+                val url = message.message
+                val fileName = message.additionalInfo?.get("fileName")
+                    ?.jsonPrimitive?.contentOrNull
             }
             MessageType.SYSTEM -> {
-                // Handle system message
                 println("System: ${message.message}")
+            }
+            else -> {
+                // Custom message type
+                println("Custom [${message.type.value}]: ${message.message}")
             }
         }
     }
     .launchIn(viewModelScope)
+```
+
+Every incoming `Message` includes an `id` (UUID) that can be used to reference messages for editing or deletion via the server's REST API.
+
+## Lifecycle
+
+| Method | Purpose |
+|---|---|
+| `joinRoom(...)` | Connect (cancels any previous connection). Auto-reconnects on drop. |
+| `disconnect()` | Stop connection and auto-reconnect. Client can be reused via `joinRoom`. |
+| `close()` | Release all resources (HTTP client, coroutine scope). Instance is no longer usable. |
+
+Typical usage in a ViewModel:
+
+```kotlin
+override fun onCleared() {
+    client.close()
+    super.onCleared()
+}
 ```
 
 ## Development
@@ -318,12 +278,12 @@ signing.password=<pgp-passphrase>
 signing.secretKeyRingFile=<path to GPG keyring file>
 ```
 
-Alternatively export them as environment variables (`ORG_GRADLE_PROJECT_mavenCentralUsername`, `ORG_GRADLE_PROJECT_mavenCentralPassword`, `ORG_GRADLE_PROJECT_signingInMemoryKey`, `ORG_GRADLE_PROJECT_signingInMemoryKeyPassword`, `ORG_GRADLE_PROJECT_signingInMemoryKeyPassword`) for CI.
+Alternatively export them as environment variables (`ORG_GRADLE_PROJECT_mavenCentralUsername`, `ORG_GRADLE_PROJECT_mavenCentralPassword`, `ORG_GRADLE_PROJECT_signingInMemoryKey`, `ORG_GRADLE_PROJECT_signingInMemoryKeyId`, `ORG_GRADLE_PROJECT_signingInMemoryKeyPassword`) for CI.
 
 ## Releasing
 
 1. Bump the version in `build.gradle.kts`.
-2. Commit and tag the release (`git tag v0.1.2 && git push --tags`).
+2. Commit and tag the release (`git tag v1.0.0 && git push --tags`).
 3. (Optional) Run `./gradlew publishToMavenCentral` locally.
 4. Use GitHub release or manual workflow dispatch to trigger `.github/workflows/publish.yml`.
-5. In Sonatype Central (<https://s01.oss.sonatype.org/>), close and release the staged repository so it syncs to Maven Central.
+5. In Sonatype Central, close and release the staged repository so it syncs to Maven Central.
