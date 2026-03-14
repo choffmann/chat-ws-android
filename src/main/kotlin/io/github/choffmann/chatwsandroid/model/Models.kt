@@ -1,13 +1,13 @@
 package io.github.choffmann.chatwsandroid.model
 
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.SerialName
 import kotlinx.datetime.LocalDateTime
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonObject
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.datetime.toInstant
@@ -33,18 +33,12 @@ data class User(
 object UtcLocalDateTimeAsInstantString : KSerializer<LocalDateTime> {
     override val descriptor = PrimitiveSerialDescriptor("UtcLocalDateTime", PrimitiveKind.STRING)
 
-    /**
-     * Parses the instant string received from the wire into a [LocalDateTime] in UTC.
-     */
     @OptIn(ExperimentalTime::class)
     override fun deserialize(decoder: Decoder): LocalDateTime {
         val s = decoder.decodeString()
         return Instant.parse(s).toLocalDateTime(TimeZone.UTC)
     }
 
-    /**
-     * Converts the provided [LocalDateTime] to a UTC instant string accepted by the backend.
-     */
     @OptIn(ExperimentalTime::class)
     override fun serialize(encoder: Encoder, value: LocalDateTime) {
         val iso = value.toInstant(TimeZone.UTC).toString()
@@ -53,28 +47,34 @@ object UtcLocalDateTimeAsInstantString : KSerializer<LocalDateTime> {
 }
 
 /**
- * Type of message (system, user message, or image).
+ * Flexible message type that supports both well-known types and custom strings.
+ * The server accepts any string as type — use the predefined constants or create your own.
  */
-@Serializable
-enum class MessageType {
-    @SerialName("system")
-    SYSTEM,
+@Serializable(with = MessageTypeSerializer::class)
+@JvmInline
+value class MessageType(val value: String) {
+    companion object {
+        val SYSTEM = MessageType("system")
+        val MESSAGE = MessageType("message")
+        val IMAGE = MessageType("image")
+        val FILE = MessageType("file")
+    }
+}
 
-    @SerialName("message")
-    MESSAGE,
-
-    @SerialName("image")
-    IMAGE
+object MessageTypeSerializer : KSerializer<MessageType> {
+    override val descriptor = PrimitiveSerialDescriptor("MessageType", PrimitiveKind.STRING)
+    override fun deserialize(decoder: Decoder) = MessageType(decoder.decodeString())
+    override fun serialize(encoder: Encoder, value: MessageType) = encoder.encodeString(value.value)
 }
 
 /**
  * Domain model describing a chat message received from the server.
  *
- * @property type Message type (system, message, or image).
- * @property message Message content (text for regular messages, Base64-encoded data for images).
+ * @property type Message type — can be any string, see [MessageType] constants.
+ * @property message Message content (text, or file URL for binary uploads).
  * @property timestamp Timestamp supplied by the backend in UTC.
  * @property user Sender information.
- * @property additionalInfo Optional key-value pairs for additional metadata (e.g., mimeType, imageData for images).
+ * @property additionalInfo Optional metadata (e.g., contentType, size, fileName for uploads).
  */
 @Serializable
 data class Message(
@@ -83,19 +83,19 @@ data class Message(
     @Serializable(with = UtcLocalDateTimeAsInstantString::class)
     val timestamp: LocalDateTime,
     val user: User,
-    val additionalInfo: Map<String, String>? = null
+    val additionalInfo: JsonObject? = null
 )
 
 /**
  * Model for outgoing messages sent to the server.
  *
- * @property type Message type being sent (system, message, or image).
- * @property message The message content (text for message type, Base64-encoded data for image type).
- * @property additionalInfo Optional key-value pairs for additional metadata that will be broadcast to all participants.
+ * @property type Message type — defaults to [MessageType.MESSAGE] if omitted by the server.
+ * @property message The message content.
+ * @property additionalInfo Optional metadata that will be broadcast to all participants.
  */
 @Serializable
 data class OutgoingMessage(
     val type: MessageType,
     val message: String,
-    val additionalInfo: Map<String, String>? = null
+    val additionalInfo: JsonObject? = null
 )

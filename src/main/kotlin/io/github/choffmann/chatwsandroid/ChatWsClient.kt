@@ -3,26 +3,24 @@ package io.github.choffmann.chatwsandroid
 import io.github.choffmann.chatwsandroid.model.*
 import io.github.choffmann.chatwsandroid.net.AppJson
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logging
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocketSession
-import io.ktor.client.request.post
-import io.ktor.http.ContentType
-import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import kotlinx.coroutines.flow.*
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.time.Duration.Companion.seconds
-import android.util.Base64
 
 /**
  * Configuration for the websocket client used by [ChatWsClient].
@@ -182,9 +180,10 @@ class ChatWsClient(
                             val text = frame.readText()
                             runCatching { AppJson.decodeFromString<Message>(text) }
                                 .onSuccess { message ->
-                                    val isSelf = message.additionalInfo?.get("self") == "true"
-                                    val joinedUserId = message.additionalInfo?.get("joinedUserId")
-                                    val joinedUserName = message.additionalInfo?.get("joinedUserName")
+                                    val info = message.additionalInfo
+                                    val isSelf = info?.get("self")?.jsonPrimitive?.booleanOrNull == true
+                                    val joinedUserId = info?.get("joinedUserId")?.jsonPrimitive?.contentOrNull
+                                    val joinedUserName = info?.get("joinedUserName")?.jsonPrimitive?.contentOrNull
 
                                     if (isSelf && joinedUserId != null && joinedUserName != null) {
                                         _currentUser.emit(User(id = joinedUserId, name = joinedUserName))
@@ -212,29 +211,22 @@ class ChatWsClient(
     }
 
     /**
-     * Attempts to send a text message to the remote peer.
+     * Sends a text message to the room.
      *
-     * @param message UTF-8 text payload that will be delivered to the room.
-     * @param additionalInfo Optional key-value pairs for additional metadata.
+     * @param message UTF-8 text payload.
+     * @param type Message type — defaults to [MessageType.MESSAGE]. Use any custom string via `MessageType("yourType")`.
+     * @param additionalInfo Optional metadata that will be broadcast to all participants.
      * @return `true` if the frame was sent, `false` when no active connection is available or sending failed.
-     *
-     * Example usage from a `ViewModel`:
-     * ```kotlin
-     * fun sendMessage(text: String) {
-     *     viewModelScope.launch {
-     *         client.sendMessage(text)
-     *     }
-     * }
-     * ```
      */
     suspend fun sendMessage(
         message: String,
-        additionalInfo: Map<String, String>? = null
+        type: MessageType = MessageType.MESSAGE,
+        additionalInfo: JsonObject? = null
     ): Boolean {
         val s = session ?: return false
         return try {
             val outgoingMessage = OutgoingMessage(
-                type = MessageType.MESSAGE,
+                type = type,
                 message = message,
                 additionalInfo = additionalInfo
             )
@@ -248,39 +240,17 @@ class ChatWsClient(
     }
 
     /**
-     * Attempts to send an image to the remote peer.
-     * The image is Base64-encoded and sent as a JSON message.
+     * Sends raw binary data as a WebSocket binary frame.
+     * The server detects the MIME type, saves the file, and broadcasts a message
+     * with type "image" or "file" containing the download URL.
      *
-     * @param imageData Raw byte array of the image file.
-     * @param mimeType MIME type of the image (e.g., "image/jpeg", "image/png").
-     * @param additionalInfo Optional key-value pairs for additional metadata. The mimeType will be automatically added here.
-     * @return `true` if the image was sent, `false` when no active connection is available or sending failed.
-     *
-     * Example usage from a `ViewModel`:
-     * ```kotlin
-     * fun sendImage(imageBytes: ByteArray) {
-     *     viewModelScope.launch {
-     *         client.sendImage(imageBytes, "image/jpeg")
-     *     }
-     * }
-     * ```
+     * @param data Raw bytes of the file to upload (max 5 MiB).
+     * @return `true` if the frame was sent, `false` when no active connection is available or sending failed.
      */
-    suspend fun sendImage(
-        imageData: ByteArray,
-        mimeType: String = "image/jpeg",
-        additionalInfo: Map<String, String>? = null
-    ): Boolean {
+    suspend fun sendBinary(data: ByteArray): Boolean {
         val s = session ?: return false
         return try {
-            val base64Image = Base64.encodeToString(imageData, Base64.NO_WRAP)
-            val mergedInfo = (additionalInfo ?: emptyMap()) + mapOf("mimeType" to mimeType)
-            val outgoingMessage = OutgoingMessage(
-                type = MessageType.IMAGE,
-                message = base64Image,
-                additionalInfo = mergedInfo
-            )
-            val json = AppJson.encodeToString(outgoingMessage)
-            s.send(Frame.Text(json))
+            s.send(Frame.Binary(true, data))
             true
         } catch (t: Throwable) {
             _connectionState.emit(ConnectionState.Disconnected(t))

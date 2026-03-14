@@ -4,11 +4,11 @@ plugins {
     id("com.android.library") version "8.13.0"
     kotlin("android") version "2.2.21"
     kotlin("plugin.serialization") version "2.2.21"
-    id("com.vanniktech.maven.publish") version "0.34.0"
+    id("com.vanniktech.maven.publish") version "0.36.0"
 }
 
 group = "io.github.choffmann"
-version = "0.1.4"
+version = "1.0.0-SNAPSHOT"
 
 val libraryArtifactId = "chat-ws-android"
 val projectUrl = "https://github.com/choffmann/chat-ws-android"
@@ -30,7 +30,7 @@ android {
 }
 
 mavenPublishing {
-  coordinates("io.github.choffmann", "chat-ws-android", "0.1.4")
+  coordinates("io.github.choffmann", "chat-ws-android", "1.0.0-SNAPSHOT")
 
   pom {
     name.set(libraryArtifactId)
@@ -58,7 +58,7 @@ mavenPublishing {
   }
 }
 
-val ktor = "3.3.1"
+val ktor = "3.4.1"
 dependencies {
     api("io.ktor:ktor-client-core:$ktor")
     api("io.ktor:ktor-client-okhttp:$ktor")
@@ -69,6 +69,6 @@ dependencies {
 
     api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
 
-    api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+    api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.10.0")
     api("org.jetbrains.kotlinx:kotlinx-datetime:0.7.1")
 }
