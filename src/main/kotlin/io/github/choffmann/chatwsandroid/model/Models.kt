@@ -30,16 +30,17 @@ data class User(
  * Serializer that encodes a [LocalDateTime] as an ISO-8601 UTC instant string.
  * This matches the payload emitted by the backend.
  */
+@OptIn(ExperimentalTime::class)
 object UtcLocalDateTimeAsInstantString : KSerializer<LocalDateTime> {
     override val descriptor = PrimitiveSerialDescriptor("UtcLocalDateTime", PrimitiveKind.STRING)
 
-    @OptIn(ExperimentalTime::class)
+
     override fun deserialize(decoder: Decoder): LocalDateTime {
         val s = decoder.decodeString()
         return Instant.parse(s).toLocalDateTime(TimeZone.UTC)
     }
 
-    @OptIn(ExperimentalTime::class)
+
     override fun serialize(encoder: Encoder, value: LocalDateTime) {
         val iso = value.toInstant(TimeZone.UTC).toString()
         encoder.encodeString(iso)
@@ -78,6 +79,7 @@ object MessageTypeSerializer : KSerializer<MessageType> {
  */
 @Serializable
 data class Message(
+    val id: String,
     val type: MessageType,
     val message: String,
     @Serializable(with = UtcLocalDateTimeAsInstantString::class)
