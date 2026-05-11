@@ -68,7 +68,31 @@ dependencies {
     api("io.ktor:ktor-client-logging:$ktor")
 
     api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
-
     api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     api("org.jetbrains.kotlinx:kotlinx-datetime:0.7.1")
+
+    testImplementation("org.junit.jupiter:junit-jupiter:5.11.0")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+    testImplementation("io.ktor:ktor-server-core:$ktor")
+    testImplementation("io.ktor:ktor-server-cio:$ktor")
+    testImplementation("io.ktor:ktor-server-websockets:$ktor")
+    testImplementation("org.testcontainers:junit-jupiter:1.20.4")
+}
+
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
+}
+
+tasks.register<Test>("e2eTest") {
+    description = "End-to-end tests against the chat-room server image"
+    group = "verification"
+    val unitTest = tasks.named<Test>("testDebugUnitTest")
+    testClassesDirs = unitTest.get().testClassesDirs
+    classpath = unitTest.get().classpath
+    useJUnitPlatform { includeTags("e2e") }
+    shouldRunAfter("testDebugUnitTest")
+}
+
+tasks.withType<Test>().matching { it.name == "testDebugUnitTest" || it.name == "testReleaseUnitTest" }.configureEach {
+    useJUnitPlatform { excludeTags("e2e") }
 }
