@@ -14,6 +14,7 @@ import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.testcontainers.junit.jupiter.Container
@@ -27,6 +28,17 @@ class ChatWsClientE2ETest {
         @Container
         @JvmStatic
         val server = ServerContainer()
+
+        /** Server-assigned room IDs created before any test runs. */
+        var binaryRoomId: Int = -1
+        var textRoomId: Int = -1
+
+        @BeforeAll
+        @JvmStatic
+        fun setupRooms() {
+            binaryRoomId = server.createRoom("e2e-binary")
+            textRoomId = server.createRoom("e2e-text")
+        }
     }
 
     private val clients = mutableListOf<ChatWsClient>()
@@ -50,8 +62,8 @@ class ChatWsClientE2ETest {
         val a = newClient()
         val b = newClient()
 
-        a.joinRoom(roomID = 999, userName = "alice")
-        b.joinRoom(roomID = 999, userName = "bob")
+        a.joinRoom(roomID = textRoomId, userName = "alice")
+        b.joinRoom(roomID = textRoomId, userName = "bob")
         a.connectionState.filter { it == ConnectionState.Connected }.first()
         b.connectionState.filter { it == ConnectionState.Connected }.first()
 
@@ -74,8 +86,8 @@ class ChatWsClientE2ETest {
         val a = newClient()
         val b = newClient()
 
-        a.joinRoom(roomID = 998, userName = "alice")
-        b.joinRoom(roomID = 998, userName = "bob")
+        a.joinRoom(roomID = binaryRoomId, userName = "alice")
+        b.joinRoom(roomID = binaryRoomId, userName = "bob")
         a.connectionState.filter { it == ConnectionState.Connected }.first()
         b.connectionState.filter { it == ConnectionState.Connected }.first()
         delay(200)
